@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * Repositorio {@link https://github.com/yordanny90/SecureStr}
+ *
+ */
 class SecureStr{
 
     /**
