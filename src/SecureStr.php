@@ -205,7 +205,7 @@ class SecureStr{
         $ivLen=13;
         $iv=$iv_init=chr((rand(0,15)<<4)|$ivLen).openssl_random_pseudo_bytes($ivLen-1);
         $c_keys=intval(ceil(strlen($strongKey)/$kSize));
-        $lenFill=(3-((strlen($value)+1)%3));
+        $lenFill=(3-((strlen($value))%3));
         $offCheck=rand(0,15);
         $fill=chr(($offCheck<<4)|$lenFill).openssl_random_pseudo_bytes($lenFill);
         $check=substr(hash_hmac('sha256', $value, $fill.$iv_init, true), $offCheck, 16);
@@ -216,7 +216,7 @@ class SecureStr{
             $iv=hash('sha256', $iv.$comp[$i], true);
             $ivArr[]=substr($iv, 0, 16);
         }
-        $enc_bin=$fill.$value.substr($check, $i*3);
+        $enc_bin=$fill.$value.substr($check, $i*4);
         if(count($ivArr)>$c_keys) array_pop($ivArr);
         $ivArr=array_reverse($ivArr);
         $comp=array_reverse($comp);
