@@ -204,7 +204,7 @@ class SecureStr{
         $kSize=($bits/8);
         $ivLen=13;
         $iv=$iv_init=chr((rand(0,15)<<4)|$ivLen).openssl_random_pseudo_bytes($ivLen-1);
-        $c_keys=intval(ceil(strlen($strongKey)/$kSize));
+        $c_keys=intval(ceil(strlen($strongKey)/$kSize))?:1;
         $lenFill=(3-((strlen($value))%3));
         $offCheck=rand(0,15);
         $fill=chr(($offCheck<<4)|$lenFill).openssl_random_pseudo_bytes($lenFill);
