@@ -73,9 +73,9 @@ class SecureStr{
      * @param string|null $privatekey Opcional. Si no especifica, se utiliza la llave privada por defecto
      * @param string $subkey Opcional. Llave privada secundaria. Cambia la codificación y decodificación del valor sin modificar la llave privada.
      * @return string
-     * @see SecureStr::decode()
+     * @see SecureStr::simple_decode()
      */
-    static function encode(string $value, string $group='', ?string $privatekey=null, string $subkey=''){
+    static function simple_encode(string $value, string $group='', ?string $privatekey=null, string $subkey=''){
         if(!is_string($privatekey)) $privatekey=self::$DEFAULT_PRIVATEKEY;
         if(!is_string($privatekey)) return null;
         if(!is_string($subkey)) $subkey='';
@@ -96,16 +96,29 @@ class SecureStr{
      * @param string|null $subkey Opcional. Llave privada secundaria. Cambia la codificación y decodificación del valor sin modificar la llave privada.
      * @return string|null SecureValue si es válido.
      */
-    static function decode(string $secureValue, ?string $verify_group=null, ?string $privatekey=null, ?string $subkey=''){
+    static function simple_decode(string $secureValue, ?string $verify_group=null, ?string $privatekey=null, ?string $subkey=''){
         if(!is_string($privatekey)) $privatekey=self::$DEFAULT_PRIVATEKEY;
         if(!is_string($privatekey)) return null;
         if(!is_string($subkey)) $subkey='';
-        $parts=[];
-        list($parts['checksum'], $parts['group'], $parts['value'])=explode('.', $secureValue, 3);
+        $parts=self::simple_explain($secureValue);
         if(!isset($parts['value'])) return null;
         if(is_string($verify_group) && ($parts['group']!==str_replace('.', '', $verify_group))) return null;
         if($parts['checksum']!==self::makeCheckSum($parts['value'], $parts['group'], $privatekey, $subkey)) return null;
         return $parts['value'];
+    }
+
+    /**
+     * Devuelve las partes del SecureValue:
+     * - checksum
+     * - group
+     * - value
+     * @param string $secureValue
+     * @return array
+     */
+    static function simple_explain(string $secureValue){
+        $parts=[];
+        list($parts['checksum'], $parts['group'], $parts['value'])=explode('.', $secureValue, 3);
+        return $parts;
     }
 
     /**
