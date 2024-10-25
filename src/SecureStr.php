@@ -6,13 +6,6 @@
  */
 class SecureStr{
 
-    /**
-     * Llave privada de seguridad<br>
-     * NUNCA se debe publicar esta información
-     * @var null
-     */
-    public static $DEFAULT_PRIVATEKEY=null;
-
     private function __construct(){ }
 
     /**
@@ -58,71 +51,52 @@ class SecureStr{
         return self::base64_toUrl(base64_encode($res));
     }
 
-    private static function makeCheckSum($value, $group, $privatekey, $subkey){
-        return self::md5_base64($privatekey.'.'.$group.'.'.$value.'.'.$group.'.'.$subkey);
+    private static function makeCheckSum(string $value, string $privatekey, string $salt){
+        $key=openssl_pbkdf2($privatekey, $salt, 32, 1024, 'sha256');
+        if(!$key) return null;
+        $data=substr(hash_hmac('sha256', $value, $privatekey.$key, true), 0, 16);
+        if(!$data) return null;
+        return $data;
     }
 
     /**
      * Genera un valor con checksum seguro (base64), utilizando una llave privada de codificación
-     *
-     * > Es compatible con el encode/decode del SecureValue (Versión 1) sin encriptación
      * @param string $value
-     * @param string $group Token público. Se adjunta al checksum generado. Se elimina cualquier caracter '.' que contenga.<br>
-     * <b>Nota:</b> <i>Puede utilizarse como una comprobación adicional, para evitar que se procese un SecureValue con un token distinto al esperado.<br>
-     * Esta comprobación se realiza en la función decode()</i>
-     * @param string|null $privatekey Opcional. Si no especifica, se utiliza la llave privada por defecto
-     * @param string $subkey Opcional. Llave privada secundaria. Cambia la codificación y decodificación del valor sin modificar la llave privada.
+     * @param string $group Se utiliza como una comprobación adicional, para evitar que se procese un encValue de un grupo distinto al esperado
+     * @param string $privatekey Llave privada
      * @return string
-     * @see SecureStr::simple_decode()
+     * @see SecureStr::decode()
      */
-    static function simple_encode(string $value, string $group='', ?string $privatekey=null, string $subkey=''){
-        if(!is_string($privatekey)) $privatekey=self::$DEFAULT_PRIVATEKEY;
-        if(!is_string($privatekey)) return null;
-        if(!is_string($subkey)) $subkey='';
-        if(!is_string($value)) $value.='';
-        if(!is_string($group)) $group='';
-        $group=str_replace('.', '', $group);
-        $checksum=self::makeCheckSum($value, $group, $privatekey,$subkey);
-        if(!is_string($checksum)) return null;
-        $res=implode('.', [$checksum, $group, $value]);
+    static function encode(string $value, string $privatekey){
+        $salt=openssl_random_pseudo_bytes(8);
+        $check=self::makeCheckSum($value, $privatekey, $salt);
+        if(!is_string($check)) return null;
+        $checksum=self::base64_toUrl(base64_encode($check.$salt));
+        $res=$checksum.'.'.$value;
         return $res;
     }
 
     /**
-     * > Es compatible con el encode/decode del SecureValue (Versión 1) sin encriptación
-     * @param string $secureValue
-     * @param string|null $verify_group Opcional. Si se recibe un string, se comprobará que este token fue el utilizado para generar el SecureValue.
-     * @param string|null $privatekey Opcional. Si no especifica, se utiliza la llave privada por defecto
-     * @param string|null $subkey Opcional. Llave privada secundaria. Cambia la codificación y decodificación del valor sin modificar la llave privada.
-     * @return string|null SecureValue si es válido.
+     * @param string $encValue
+     * @param string $group Se utiliza como una comprobación adicional, para evitar que se procese un encValue de un grupo distinto al esperado
+     * @param string $privatekey Llave privada
+     * @return string|null Valor original si es válido.
      */
-    static function simple_decode(string $secureValue, ?string $verify_group=null, ?string $privatekey=null, ?string $subkey=''){
-        if(!is_string($privatekey)) $privatekey=self::$DEFAULT_PRIVATEKEY;
-        if(!is_string($privatekey)) return null;
-        if(!is_string($subkey)) $subkey='';
-        $parts=self::simple_explain($secureValue);
+    static function decode(string $encValue, string $privatekey){
+        $parts=[];
+        list($parts['checksum'], $parts['value'])=explode('.', $encValue, 2);
         if(!isset($parts['value'])) return null;
-        if(is_string($verify_group) && ($parts['group']!==str_replace('.', '', $verify_group))) return null;
-        if($parts['checksum']!==self::makeCheckSum($parts['value'], $parts['group'], $privatekey, $subkey)) return null;
+        $check=base64_decode(self::base64_fromUrl($parts['checksum']));
+        if(!$check) return null;
+        $salt=substr($check, 16);
+        $check=substr($check, 0, 16);
+        $checksum=self::makeCheckSum($parts['value'], $privatekey, $salt);
+        if($check!==$checksum) return null;
         return $parts['value'];
     }
 
     /**
-     * Devuelve las partes del SecureValue:
-     * - checksum
-     * - group
-     * - value
-     * @param string $secureValue
-     * @return array
-     */
-    static function simple_explain(string $secureValue){
-        $parts=[];
-        list($parts['checksum'], $parts['group'], $parts['value'])=explode('.', $secureValue, 3);
-        return $parts;
-    }
-
-    /**
-     * Encripta el valor por capas usando AES-128-OFB, añade un checksum para conprobar la integridad del dato al desencriptar
+     * Encripta el valor por capas usando AES-128-OFB, añade un checksum para comprobar la integridad del dato al desencriptar
      * y permite el uso de una llave de cualquier longitud
      *
      * - Cada 16 bytes de la llave, agrega una capa de encriptación
@@ -132,10 +106,11 @@ class SecureStr{
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
+     * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_encrypt128(string $value, string $strongKey, bool $raw=false){
-        return static::strong_encrypt_x(128, $value, $strongKey, $raw);
+    public static function strong_encrypt128(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_encrypt_x(128, $value, $strongKey, $raw, $levels);
     }
 
     /**
@@ -143,14 +118,15 @@ class SecureStr{
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
+     * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_decrypt128(string $value, string $strongKey, bool $raw=false){
-        return static::strong_decrypt_x(128, $value, $strongKey, $raw);
+    public static function strong_decrypt128(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_decrypt_x(128, $value, $strongKey, $raw, $levels);
     }
 
     /**
-     * Encripta el valor por capas usando AES-192-OFB, añade un checksum para conprobar la integridad del dato al desencriptar
+     * Encripta el valor por capas usando AES-192-OFB, añade un checksum para comprobar la integridad del dato al desencriptar
      * y permite el uso de una llave de cualquier longitud
      *
      * - Cada 24 bytes de la llave, agrega una capa de encriptación
@@ -160,10 +136,11 @@ class SecureStr{
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
+     * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_encrypt192(string $value, string $strongKey, bool $raw=false){
-        return static::strong_encrypt_x(192, $value, $strongKey, $raw);
+    public static function strong_encrypt192(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_encrypt_x(192, $value, $strongKey, $raw, $levels);
     }
 
     /**
@@ -171,14 +148,15 @@ class SecureStr{
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
+     * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_decrypt192(string $value, string $strongKey, bool $raw=false){
-        return static::strong_decrypt_x(192, $value, $strongKey, $raw);
+    public static function strong_decrypt192(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_decrypt_x(192, $value, $strongKey, $raw, $levels);
     }
 
     /**
-     * Encripta el valor por capas usando AES-256-OFB, añade un checksum para conprobar la integridad del dato al desencriptar
+     * Encripta el valor por capas usando AES-256-OFB, añade un checksum para comprobar la integridad del dato al desencriptar
      * y permite el uso de una llave de cualquier longitud
      *
      * - Cada 32 bytes de la llave, agrega una capa de encriptación
@@ -188,10 +166,11 @@ class SecureStr{
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
+     * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_encrypt256(string $value, string $strongKey, bool $raw=false){
-        return static::strong_encrypt_x(256, $value, $strongKey, $raw);
+    public static function strong_encrypt256(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_encrypt_x(256, $value, $strongKey, $raw, $levels);
     }
 
     /**
@@ -199,10 +178,11 @@ class SecureStr{
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
+     * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_decrypt256(string $value, string $strongKey, bool $raw=false){
-        return static::strong_decrypt_x(256, $value, $strongKey, $raw);
+    public static function strong_decrypt256(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_decrypt_x(256, $value, $strongKey, $raw, $levels);
     }
 
     /**
@@ -210,13 +190,23 @@ class SecureStr{
      * @param string $value
      * @param string $strongKey
      * @param bool $raw
+     * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    private static function strong_encrypt_x(int $bits, string $value, string $strongKey, bool $raw=false){
+    private static function strong_encrypt_x(int $bits, string $value, string $strongKey, bool $raw, int $levels){
         $algo='AES-'.$bits.'-OFB';
         $kSize=($bits/8);
         $ivLen=13;
         $iv=$iv_init=chr((rand(0,15)<<4)|$ivLen).openssl_random_pseudo_bytes($ivLen-1);
+        if($levels>0){
+            $key_length=intval(ceil(strlen($strongKey)/$kSize)*$kSize);
+            if($key_length<$levels*$kSize) $key_length=$levels*$kSize;
+            $key_length-=strlen($strongKey);
+            if($key_length>0){
+                $iterations=1024+strlen($strongKey)+$bits*$levels;
+                $strongKey.=openssl_pbkdf2($strongKey, $iv_init, $key_length, $iterations, 'sha256');
+            }
+        }
         $c_keys=intval(ceil(strlen($strongKey)/$kSize))?:1;
         $lenFill=(3-((strlen($value))%3));
         $offCheck=rand(0,15);
@@ -241,13 +231,22 @@ class SecureStr{
         return $raw?$iv_init.$enc_bin:base64_encode($iv_init.$enc_bin);
     }
 
-    private static function strong_decrypt_x(int $bits, string $enc_value, string $strongKey, bool $raw=false){
+    private static function strong_decrypt_x(int $bits, string $enc_value, string $strongKey, bool $raw=false, int $levels=0){
         $algo='AES-'.$bits.'-OFB';
         $kSize=($bits/8);
         $enc_bin=$raw?$enc_value:base64_decode($enc_value);
         if($enc_bin===false) return null;
         $ivLen=ord($enc_bin[0])&15;
         $iv=$iv_init=substr($enc_bin, 0, $ivLen);
+        if($levels>0){
+            $key_length=intval(ceil(strlen($strongKey)/$kSize)*$kSize);
+            if($key_length<$levels*$kSize) $key_length=$levels*$kSize;
+            $key_length-=strlen($strongKey);
+            if($key_length>0){
+                $iterations=1024+strlen($strongKey)+$bits*$levels;
+                $strongKey.=openssl_pbkdf2($strongKey, $iv_init, $key_length, $iterations, 'sha256');
+            }
+        }
         $enc_bin=substr($enc_bin, $ivLen);
         $keys=str_split($strongKey, $kSize);
         $check='';
