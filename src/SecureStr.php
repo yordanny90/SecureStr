@@ -51,10 +51,10 @@ class SecureStr{
         return self::base64_toUrl(base64_encode($res));
     }
 
-    private static function makeCheckSum(string $value, string $privatekey, string $salt){
-        $key=openssl_pbkdf2($privatekey, $salt, 32, 1024, 'sha256');
+    private static function makeCheckSum(string $value, string $privatekey, string $salt, int $key_length=32, $iterations=1024){
+        $key=openssl_pbkdf2($privatekey, $salt, $key_length, $iterations, 'sha256');
         if(!$key) return null;
-        $data=substr(hash_hmac('sha256', $value, $privatekey.$key, true), 0, 16);
+        $data=hash_hmac('sha256', $value, $privatekey.$key, true);
         if(!$data) return null;
         return $data;
     }
@@ -62,15 +62,33 @@ class SecureStr{
     /**
      * Genera un valor con checksum seguro (base64), utilizando una llave privada de codificación
      * @param string $value
-     * @param string $group Se utiliza como una comprobación adicional, para evitar que se procese un encValue de un grupo distinto al esperado
      * @param string $privatekey Llave privada
      * @return string
      * @see SecureStr::decode()
      */
     static function encode(string $value, string $privatekey){
-        $salt=openssl_random_pseudo_bytes(8);
-        $check=self::makeCheckSum($value, $privatekey, $salt);
+        return self:: encode_x($value, $privatekey);
+    }
+
+    /**
+     * Genera un valor con checksum seguro (base64), utilizando una llave privada de codificación
+     * @param string $value
+     * @param string $privatekey Llave privada
+     * @param int $level Default: 2. Rango: 1-4. Nivel del checksum. Longitud por nivel (en bytes):<br>
+     * 1: Salt=4 Checksum=8 Total=12<br>
+     * 2: Salt=8 Checksum=16 Total=24<br>
+     * 3: Salt=12 Checksum=24 Total=36<br>
+     * 4: Salt=16 Checksum=32 Total=48<br>
+     * El nivel 1 es más susceptible a colisiones, el nivel 4 es el más seguro pero de mayor peso
+     * @return string
+     * @see SecureStr::decode()
+     */
+    private static function encode_x(string $value, string $privatekey, int $level=2){
+        $c=$level*8;
+        $salt=openssl_random_pseudo_bytes($c/2);
+        $check=self::makeCheckSum($value, $privatekey, $salt, $c*2);
         if(!is_string($check)) return null;
+        $check=substr($check, 0, $c);
         $checksum=self::base64_toUrl(base64_encode($check.$salt));
         $res=$checksum.'.'.$value;
         return $res;
@@ -78,7 +96,6 @@ class SecureStr{
 
     /**
      * @param string $encValue
-     * @param string $group Se utiliza como una comprobación adicional, para evitar que se procese un encValue de un grupo distinto al esperado
      * @param string $privatekey Llave privada
      * @return string|null Valor original si es válido.
      */
@@ -88,9 +105,11 @@ class SecureStr{
         if(!isset($parts['value'])) return null;
         $check=base64_decode(self::base64_fromUrl($parts['checksum']));
         if(!$check) return null;
-        $salt=substr($check, 16);
-        $check=substr($check, 0, 16);
-        $checksum=self::makeCheckSum($parts['value'], $privatekey, $salt);
+        $c=intval(strlen($check)*2/24)*8;
+        if($c<8) return null;
+        $salt=substr($check, $c);
+        $check=substr($check, 0, $c);
+        $checksum=substr(self::makeCheckSum($parts['value'], $privatekey, $salt, $c*2), 0, $c);
         if($check!==$checksum) return null;
         return $parts['value'];
     }
