@@ -121,27 +121,27 @@ class SecureStr{
      * - Cada 16 bytes de la llave, agrega una capa de encriptación
      * - Se recomienda el uso de llaves de 2 a 4 niveles (32 a 64 bytes)
      * - Cuanto más grande sea la llave, mayor será la protección del dato, pero disminuye la eficiencia del resultado
-     * Usa {@see SecureStr::strong_decrypt128()} para desencriptar
+     * Usa {@see SecureStr::strong_decrypt_AES128()} para desencriptar
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_encrypt128(string $value, string $strongKey, bool $raw=false, int $levels=0){
-        return static::strong_encrypt_x(128, $value, $strongKey, $raw, $levels);
+    public static function strong_encrypt_AES128(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_encrypt_AESx(128, $value, $strongKey, $raw, $levels);
     }
 
     /**
-     * Desencripta el valor generado por {@see SecureStr::strong_encrypt128()}
+     * Desencripta el valor generado por {@see SecureStr::strong_encrypt_AES128()}
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_decrypt128(string $value, string $strongKey, bool $raw=false, int $levels=0){
-        return static::strong_decrypt_x(128, $value, $strongKey, $raw, $levels);
+    public static function strong_decrypt_AES128(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_decrypt_AESx(128, $value, $strongKey, $raw, $levels);
     }
 
     /**
@@ -151,27 +151,27 @@ class SecureStr{
      * - Cada 24 bytes de la llave, agrega una capa de encriptación
      * - Se recomienda el uso de llaves de 2 a 4 niveles (24 a 96 bytes)
      * - Cuanto más grande sea la llave, mayor será la protección del dato, pero disminuye la eficiencia del resultado
-     * Usa {@see SecureStr::strong_decrypt192()} para desencriptar
+     * Usa {@see SecureStr::strong_decrypt_AES192()} para desencriptar
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_encrypt192(string $value, string $strongKey, bool $raw=false, int $levels=0){
-        return static::strong_encrypt_x(192, $value, $strongKey, $raw, $levels);
+    public static function strong_encrypt_AES192(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_encrypt_AESx(192, $value, $strongKey, $raw, $levels);
     }
 
     /**
-     * Desencripta el valor generado por {@see SecureStr::strong_encrypt192()}
+     * Desencripta el valor generado por {@see SecureStr::strong_encrypt_AES192()}
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_decrypt192(string $value, string $strongKey, bool $raw=false, int $levels=0){
-        return static::strong_decrypt_x(192, $value, $strongKey, $raw, $levels);
+    public static function strong_decrypt_AES192(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_decrypt_AESx(192, $value, $strongKey, $raw, $levels);
     }
 
     /**
@@ -181,27 +181,37 @@ class SecureStr{
      * - Cada 32 bytes de la llave, agrega una capa de encriptación
      * - Se recomienda el uso de llaves de 2 a 4 niveles (64 a 128 bytes)
      * - Cuanto más grande sea la llave, mayor será la protección del dato, pero disminuye la eficiencia del resultado
-     * Usa {@see SecureStr::strong_decrypt256()} para desencriptar
+     * Usa {@see SecureStr::strong_decrypt_AES256()} para desencriptar
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_encrypt256(string $value, string $strongKey, bool $raw=false, int $levels=0){
-        return static::strong_encrypt_x(256, $value, $strongKey, $raw, $levels);
+    public static function strong_encrypt_AES256(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_encrypt_AESx(256, $value, $strongKey, $raw, $levels);
     }
 
     /**
-     * Desencripta el valor generado por {@see SecureStr::strong_encrypt256()}
+     * Desencripta el valor generado por {@see SecureStr::strong_encrypt_AES256()}
      * @param string $value
      * @param string $strongKey La llave se lee en binario, un valor en base64 no se decodifica
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    public static function strong_decrypt256(string $value, string $strongKey, bool $raw=false, int $levels=0){
-        return static::strong_decrypt_x(256, $value, $strongKey, $raw, $levels);
+    public static function strong_decrypt_AES256(string $value, string $strongKey, bool $raw=false, int $levels=0){
+        return static::strong_decrypt_AESx(256, $value, $strongKey, $raw, $levels);
+    }
+
+    private static function key_stronger(string $key, string $salt, int $keySize, int $levels){
+        $key_length=max($levels*$keySize, intval(ceil(strlen($key)/$keySize)*$keySize));
+        $key_length-=strlen($key);
+        if($key_length>0){
+            $iterations=1024+$key_length*$levels;
+            $key.=openssl_pbkdf2($key, $salt, $key_length, $iterations, 'sha256');
+        }
+        return $key;
     }
 
     /**
@@ -212,24 +222,19 @@ class SecureStr{
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
      */
-    private static function strong_encrypt_x(int $bits, string $value, string $strongKey, bool $raw, int $levels){
+    private static function strong_encrypt_AESx(int $bits, string $value, string $strongKey, bool $raw, int $levels){
         $algo='AES-'.$bits.'-OFB';
         $kSize=($bits/8);
-        $ivLen=13;
-        $iv=$iv_init=chr((rand(0,15)<<4)|$ivLen).openssl_random_pseudo_bytes($ivLen-1);
+        $ivLen=16;
+        $iv=$iv_init=openssl_random_pseudo_bytes($ivLen);
         if($levels>0){
-            $key_length=intval(ceil(strlen($strongKey)/$kSize)*$kSize);
-            if($key_length<$levels*$kSize) $key_length=$levels*$kSize;
-            $key_length-=strlen($strongKey);
-            if($key_length>0){
-                $iterations=1024+strlen($strongKey)+$bits*$levels;
-                $strongKey.=openssl_pbkdf2($strongKey, $iv_init, $key_length, $iterations, 'sha256');
-            }
+            $strongKey=self::key_stronger($strongKey, $iv_init, $kSize, $levels);
         }
         $c_keys=intval(ceil(strlen($strongKey)/$kSize))?:1;
-        $lenFill=(3-((strlen($value))%3));
-        $offCheck=rand(0,15);
-        $fill=chr(($offCheck<<4)|$lenFill).openssl_random_pseudo_bytes($lenFill);
+        $lenFill=(3-(strlen($value)%3))%3;
+        $fill=chr((rand(0,63)<<2)|$lenFill);
+        if($lenFill>0) $fill.=openssl_random_pseudo_bytes($lenFill);
+        $offCheck=(ord($fill)>>2)&15;
         $check=substr(hash_hmac('sha256', $value, $fill.$iv_init, true), $offCheck, 16);
         $comp=[];
         $ivArr=[];
@@ -250,23 +255,17 @@ class SecureStr{
         return $raw?$iv_init.$enc_bin:base64_encode($iv_init.$enc_bin);
     }
 
-    private static function strong_decrypt_x(int $bits, string $enc_value, string $strongKey, bool $raw=false, int $levels=0){
+    private static function strong_decrypt_AESx(int $bits, string $enc_value, string $strongKey, bool $raw, int $levels){
         $algo='AES-'.$bits.'-OFB';
         $kSize=($bits/8);
         $enc_bin=$raw?$enc_value:base64_decode($enc_value);
         if($enc_bin===false) return null;
-        $ivLen=ord($enc_bin[0])&15;
+        $ivLen=16;
         $iv=$iv_init=substr($enc_bin, 0, $ivLen);
-        if($levels>0){
-            $key_length=intval(ceil(strlen($strongKey)/$kSize)*$kSize);
-            if($key_length<$levels*$kSize) $key_length=$levels*$kSize;
-            $key_length-=strlen($strongKey);
-            if($key_length>0){
-                $iterations=1024+strlen($strongKey)+$bits*$levels;
-                $strongKey.=openssl_pbkdf2($strongKey, $iv_init, $key_length, $iterations, 'sha256');
-            }
-        }
         $enc_bin=substr($enc_bin, $ivLen);
+        if($levels>0){
+            $strongKey=self::key_stronger($strongKey, $iv_init, $kSize, $levels);
+        }
         $keys=str_split($strongKey, $kSize);
         $check='';
         foreach(array_reverse($keys) AS $key){
@@ -288,8 +287,8 @@ class SecureStr{
             $enc_bin=substr($enc_bin, 0, -$rest);
         }
         $ctrl=ord($enc_bin[0]);
-        $offCheck=($ctrl>>4);
-        $lenFill=1+($ctrl&15);
+        $offCheck=(($ctrl>>2)&15);
+        $lenFill=1+($ctrl&3);
         $fill=substr($enc_bin, 0, $lenFill);
         $value=substr($enc_bin, $lenFill);
         $check0=substr(hash_hmac('sha256', $value, $fill.$iv_init, true), $offCheck, 16);
