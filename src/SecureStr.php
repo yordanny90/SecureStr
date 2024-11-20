@@ -30,67 +30,63 @@ class SecureStr{
         return $b64;
     }
 
-    /**
-     * Genera un MD5 en base64
-     * @param $data
-     * @return string
-     */
-    static function md5_base64($data){
-        return self::base64_toUrl(base64_encode(md5($data,true)));
+    private static function makeCheckSum(string $data, string $privatekey, string $salt, int $key_length, int $iterations, int $length): ?string{
+        if(!($key=openssl_pbkdf2($privatekey, $salt, $key_length, $iterations, 'sha256'))) return null;
+        if(!($hash=hash_hmac('sha256', $data, $privatekey.$key, true))) return null;
+        if(!($hash=substr($hash, 0, $length))) return null;
+        return $hash;
     }
 
     /**
-     * Genera un MD5 HMAC en base64
      * @param string $data
-     * @param string $key
+     * @param string $privatekey
+     * @param int $length Default: 26. Rango: 26-42. Longitud del checksum resultante en bytes
+     * @param int|null $iterations Default: 26. Rango: 255-65535. Iteraciones usadas en {@see openssl_pbkdf2()} Si es null, se asigna <code>rand(255, 2560)</code>
+     * @param bool $raw
      * @return string|null
      */
-    static function md5hmac_base64($data, $key){
-        $res=hash_hmac('md5', $data, $key, true);
-        if(!is_string($res)) return null;
-        return self::base64_toUrl(base64_encode($res));
+    public static function checksum_create(string $data, string $privatekey, int $length=26, ?int $iterations=null, bool $raw=false): ?string{
+        $length=min(max($length-10, 16), 32);
+        if($iterations===null) $iterations=rand(255, 2560);
+        elseif($iterations>65535) $iterations=65535;
+        elseif($iterations<255) $iterations=255;
+        $salt=pack('v', $iterations).openssl_random_pseudo_bytes(8);
+        $check=self::makeCheckSum($data, $privatekey, $salt, $length*2, $iterations, $length);
+        if(!$check) return null;
+        return $raw?$salt.$check:self::base64_toUrl(base64_encode($salt.$check));
     }
 
-    private static function makeCheckSum(string $value, string $privatekey, string $salt, int $key_length=32, $iterations=1024){
-        $key=openssl_pbkdf2($privatekey, $salt, $key_length, $iterations, 'sha256');
-        if(!$key) return null;
-        $data=hash_hmac('sha256', $value, $privatekey.$key, true);
-        if(!$data) return null;
-        return $data;
+    /**
+     * @param string $data Dato a comprobar
+     * @param string $privatekey
+     * @param string $checksum Valor generado por {@see SecureStr::checksum_create()}
+     * @param bool $raw
+     * @return bool
+     */
+    public static function checksum_verify(string $data, string $privatekey, string $checksum, bool $raw=false): bool{
+        if(!$raw) $checksum=base64_decode(self::base64_fromUrl($checksum));
+        $length=strlen($checksum)-10;
+        if($length<16 || $length>32) return false;
+        $iterations=unpack('v', substr($checksum, 0, 2))[1]??0;
+        if($iterations<255) return false;
+        $salt=substr($checksum, 0, 10);
+        $check=self::makeCheckSum($data, $privatekey, $salt, $length*2, $iterations, $length);
+        if(!$check || $check!==substr($checksum, 10)) return false;
+        return true;
     }
 
     /**
      * Genera un valor con checksum seguro (base64), utilizando una llave privada de codificación
      * @param string $value
      * @param string $privatekey Llave privada
-     * @return string
+     * @param int $length Default: 26. Rango: 26-42. Longitud del checksum en bytes
+     * @return string|null
      * @see SecureStr::decode()
      */
-    static function encode(string $value, string $privatekey){
-        return self:: encode_x($value, $privatekey);
-    }
-
-    /**
-     * Genera un valor con checksum seguro (base64), utilizando una llave privada de codificación
-     * @param string $value
-     * @param string $privatekey Llave privada
-     * @param int $level Default: 2. Rango: 1-4. Nivel del checksum. Longitud por nivel (en bytes):<br>
-     * 1: Salt=4 Checksum=8 Total=12<br>
-     * 2: Salt=8 Checksum=16 Total=24<br>
-     * 3: Salt=12 Checksum=24 Total=36<br>
-     * 4: Salt=16 Checksum=32 Total=48<br>
-     * El nivel 1 es más susceptible a colisiones, el nivel 4 es el más seguro pero de mayor peso
-     * @return string
-     * @see SecureStr::decode()
-     */
-    private static function encode_x(string $value, string $privatekey, int $level=2){
-        $c=$level*8;
-        $salt=openssl_random_pseudo_bytes($c/2);
-        $check=self::makeCheckSum($value, $privatekey, $salt, $c*2);
+    static function encode(string $value, string $privatekey, int $length=26): ?string{
+        $check=self::checksum_create($value, $privatekey, $length);
         if(!is_string($check)) return null;
-        $check=substr($check, 0, $c);
-        $checksum=self::base64_toUrl(base64_encode($check.$salt));
-        $res=$checksum.'.'.$value;
+        $res=$check.'.'.$value;
         return $res;
     }
 
@@ -99,18 +95,11 @@ class SecureStr{
      * @param string $privatekey Llave privada
      * @return string|null Valor original si es válido.
      */
-    static function decode(string $encValue, string $privatekey){
+    static function decode(string $encValue, string $privatekey): ?string{
         $parts=[];
         list($parts['checksum'], $parts['value'])=explode('.', $encValue, 2);
         if(!isset($parts['value'])) return null;
-        $check=base64_decode(self::base64_fromUrl($parts['checksum']));
-        if(!$check) return null;
-        $c=intval(strlen($check)*2/24)*8;
-        if($c<8) return null;
-        $salt=substr($check, $c);
-        $check=substr($check, 0, $c);
-        $checksum=substr(self::makeCheckSum($parts['value'], $privatekey, $salt, $c*2), 0, $c);
-        if($check!==$checksum) return null;
+        if(!self::checksum_verify($parts['value'], $privatekey, $parts['checksum'])) return null;
         return $parts['value'];
     }
 
