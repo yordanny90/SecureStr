@@ -286,4 +286,75 @@ class SecureStr{
         return $value;
     }
 
+    /**
+     * Método de encriptación por niveles. Más eficiente que {@see SecureStr::strong_encrypt_AESx()}
+     * @param string $value Valor a encriptar
+     * @param string $key Llave inicial de encriptación. El proceso genera nuevos valores en cada iteración
+     * @param bool $raw Default=FALSE. Devuelve un base64. Si es TRUE, devuelve el valor binario
+     * @param int $iterations Default=8. Números de iteraciones. Un número mayor aumentará el costo de la encriptación y será más seguro
+     * @param int $checksumLength Default=16. Longitud del checksum agregado para la comprobación de integridad
+     * @return string|null
+     */
+    public static function encrypt_AES256OFB(string $value, string $key, bool $raw=false, int $iterations=8, int $checksumLength=16){
+        $algo='AES-256-OFB';
+        $digest_algo='sha256';
+        $iterations=min(max($iterations, 0), 65535);
+        $checksumLength=min(max($checksumLength, 8), 32);
+        $iv=openssl_random_pseudo_bytes(16);
+        if(!$iv) return null;
+        $derivedSalt=hash_hmac($digest_algo, $iv.pack('N', $iterations), $key, true);
+        $derivedKey=hash_hmac($digest_algo, $key, $derivedSalt, true);
+        $checksum=substr(hash_hmac($digest_algo, $value, $derivedKey.$derivedSalt, true), 0, $checksumLength);
+        $bin=chr($checksumLength<<2).$checksum.$value;
+        $secretIV=substr(hash_hmac($digest_algo, $derivedSalt, $derivedKey, true), 0, openssl_cipher_iv_length($algo));
+        $bin=openssl_encrypt($bin, $algo, $derivedKey, OPENSSL_RAW_DATA, $secretIV);
+        for($i=1; $i<=$iterations; ++$i){
+            $secret=hash_hmac($digest_algo, $derivedKey.pack('N', $i), $secretIV, true);
+            $bin=openssl_encrypt($bin, $algo, $secret, OPENSSL_RAW_DATA, $secretIV);
+            if($bin===false) return null;
+        }
+        $enc_bin=$iv.$bin;
+        return $raw?$enc_bin:base64_encode($enc_bin);
+    }
+
+    /**
+     * Desencripta el valor generado por {@see SecureStr::encrypt_AES256OFB()}
+     * @param string $enc_value Valor encriptado
+     * @param string $key Llave inicial de encriptación
+     * @param bool $raw Default=FALSE. Recibe un base64. Si es TRUE, recibe el valor binario
+     * @param int $iterations Default=8. Números de iteraciones con el que se encriptó
+     * @param int|null $checksumLength Parámetro de salida, devuelve la longitud que se usó de checksum
+     * @return false|string|null
+     */
+    public static function decrypt_AES256OFB(string $enc_value, string $key, bool $raw=false, int $iterations=8, ?int &$checksumLength=null){
+        $checksumLength=null;
+        $bin=$raw?$enc_value:base64_decode($enc_value);
+        $algo='AES-256-OFB';
+        $digest_algo='sha256';
+        $iterations=min(max($iterations, 0), 65535);
+        $iv=substr($bin, 0, 16);
+        $bin=substr($bin, 16);
+        $derivedSalt=hash_hmac($digest_algo, $iv.pack('N', $iterations), $key, true);
+        $derivedKey=hash_hmac($digest_algo, $key, $derivedSalt, true);
+        $secretIV=substr(hash_hmac($digest_algo, $derivedSalt, $derivedKey, true), 0, openssl_cipher_iv_length($algo));
+        if($bin===false) return null;
+        for($i=$iterations; $i>0; --$i){
+            $secret=hash_hmac($digest_algo, $derivedKey.pack('N', $i), $secretIV, true);
+            $bin=openssl_decrypt($bin, $algo, $secret, OPENSSL_RAW_DATA, $secretIV);
+            if($bin===false) return null;
+        }
+        $bin=openssl_decrypt($bin, $algo, $derivedKey, OPENSSL_RAW_DATA, $secretIV);
+        if($bin===false) return null;
+        $checkLen=ord($bin)>>2;
+        if($checkLen>32 || $checkLen<8)
+            return null;
+        $checksum=substr($bin, 1, $checkLen);
+        $value=substr($bin, $checkLen+1);
+        $checksumB=substr(hash_hmac($digest_algo, $value, $derivedKey.$derivedSalt, true), 0, $checkLen);
+        if($checksum==='' || $checksum!==$checksumB)
+            return null;
+        $checksumLength=$checkLen;
+        return $value;
+    }
+
 }
