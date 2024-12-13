@@ -298,22 +298,24 @@ class SecureStr{
     public static function encrypt_AES256OFB(string $value, string $key, bool $raw=false, int $iterations=8, int $checksumLength=16){
         $algo='AES-256-OFB';
         $digest_algo='sha256';
-        $iterations=min(max($iterations, 0), 65535);
+        $iterations=min(max($iterations, 0), 65535)+1;
         $checksumLength=min(max($checksumLength, 8), 32);
         $iv=openssl_random_pseudo_bytes(16);
         if(!$iv) return null;
-        $derivedSalt=hash_hmac($digest_algo, $iv.pack('N', $iterations), $key, true);
+        $offset=3-((strlen($value)+$checksumLength+17)%3);
+        $value=openssl_random_pseudo_bytes($offset).$value;
+        $checksum=substr(hash_hmac($digest_algo, $value, $iv, true), 0, $checksumLength);
+        $derivedSalt=hash_hmac($digest_algo, $iv.$checksum.pack('N', $iterations), $key, true);
         $derivedKey=hash_hmac($digest_algo, $key, $derivedSalt, true);
-        $checksum=substr(hash_hmac($digest_algo, $value, $derivedKey.$derivedSalt, true), 0, $checksumLength);
-        $bin=chr($checksumLength<<2).$checksum.$value;
         $secretIV=substr(hash_hmac($digest_algo, $derivedSalt, $derivedKey, true), 0, openssl_cipher_iv_length($algo));
-        $bin=openssl_encrypt($bin, $algo, $derivedKey, OPENSSL_RAW_DATA, $secretIV);
+        unset($derivedSalt);
+        $bin=$value;
         for($i=1; $i<=$iterations; ++$i){
             $secret=hash_hmac($digest_algo, $derivedKey.pack('N', $i), $secretIV, true);
             $bin=openssl_encrypt($bin, $algo, $secret, OPENSSL_RAW_DATA, $secretIV);
             if($bin===false) return null;
         }
-        $enc_bin=$iv.$bin;
+        $enc_bin=$iv.chr($checksumLength<<2|$offset).$checksum.$bin;
         return $raw?$enc_bin:base64_encode($enc_bin);
     }
 
@@ -331,28 +333,28 @@ class SecureStr{
         $bin=$raw?$enc_value:base64_decode($enc_value);
         $algo='AES-256-OFB';
         $digest_algo='sha256';
-        $iterations=min(max($iterations, 0), 65535);
+        $iterations=min(max($iterations, 0), 65535)+1;
         $iv=substr($bin, 0, 16);
         $bin=substr($bin, 16);
-        $derivedSalt=hash_hmac($digest_algo, $iv.pack('N', $iterations), $key, true);
+        $checkLen=ord($bin);
+        $offset=$checkLen&3;
+        $checkLen=$checkLen>>2;
+        if($checkLen>32 || $checkLen<8) return null;
+        $checksum=substr($bin, 1, $checkLen);
+        $bin=substr($bin, 1+$checkLen);
+        $derivedSalt=hash_hmac($digest_algo, $iv.$checksum.pack('N', $iterations), $key, true);
         $derivedKey=hash_hmac($digest_algo, $key, $derivedSalt, true);
         $secretIV=substr(hash_hmac($digest_algo, $derivedSalt, $derivedKey, true), 0, openssl_cipher_iv_length($algo));
-        if($bin===false) return null;
+        unset($derivedSalt);
         for($i=$iterations; $i>0; --$i){
             $secret=hash_hmac($digest_algo, $derivedKey.pack('N', $i), $secretIV, true);
             $bin=openssl_decrypt($bin, $algo, $secret, OPENSSL_RAW_DATA, $secretIV);
             if($bin===false) return null;
         }
-        $bin=openssl_decrypt($bin, $algo, $derivedKey, OPENSSL_RAW_DATA, $secretIV);
-        if($bin===false) return null;
-        $checkLen=ord($bin)>>2;
-        if($checkLen>32 || $checkLen<8)
+        $checksumB=substr(hash_hmac($digest_algo, $bin, $iv, true), 0, $checkLen);
+        if($checksum!==$checksumB)
             return null;
-        $checksum=substr($bin, 1, $checkLen);
-        $value=substr($bin, $checkLen+1);
-        $checksumB=substr(hash_hmac($digest_algo, $value, $derivedKey.$derivedSalt, true), 0, $checkLen);
-        if($checksum==='' || $checksum!==$checksumB)
-            return null;
+        $value=substr($bin, $offset);
         $checksumLength=$checkLen;
         return $value;
     }
