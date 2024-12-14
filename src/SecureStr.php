@@ -30,9 +30,9 @@ class SecureStr{
         return $b64;
     }
 
-    private static function makeCheckSum(string $data, string $privatekey, string $salt, int $key_length, int $iterations, int $length): ?string{
-        if(!($key=openssl_pbkdf2($privatekey, $salt, $key_length, $iterations, 'sha256'))) return null;
-        if(!($hash=hash_hmac('sha256', $data, $privatekey.$key, true))) return null;
+    private static function makeCheckSum(string $data, string $privatekey, string $salt, int $iterations, int $length): ?string{
+        if(!($key=openssl_pbkdf2($privatekey, $salt, 32, $iterations, 'sha256'))) return null;
+        if(!($hash=hash_hmac('sha256', $data, $key, true))) return null;
         if(!($hash=substr($hash, 0, $length))) return null;
         return $hash;
     }
@@ -50,8 +50,8 @@ class SecureStr{
         if($iterations===null) $iterations=rand(255, 2560);
         elseif($iterations>65535) $iterations=65535;
         elseif($iterations<255) $iterations=255;
-        $salt=pack('v', $iterations).openssl_random_pseudo_bytes(8);
-        $check=self::makeCheckSum($data, $privatekey, $salt, $length*2, $iterations, $length);
+        $salt=pack('n', $iterations).openssl_random_pseudo_bytes(8);
+        $check=self::makeCheckSum($data, $privatekey, $salt, $iterations, $length);
         if(!$check) return null;
         return $raw?$salt.$check:self::base64_toUrl(base64_encode($salt.$check));
     }
@@ -67,10 +67,10 @@ class SecureStr{
         if(!$raw) $checksum=base64_decode(self::base64_fromUrl($checksum));
         $length=strlen($checksum)-10;
         if($length<16 || $length>32) return false;
-        $iterations=unpack('v', substr($checksum, 0, 2))[1]??0;
+        $iterations=unpack('n', substr($checksum, 0, 2))[1]??0;
         if($iterations<255) return false;
         $salt=substr($checksum, 0, 10);
-        $check=self::makeCheckSum($data, $privatekey, $salt, $length*2, $iterations, $length);
+        $check=self::makeCheckSum($data, $privatekey, $salt, $iterations, $length);
         if(!$check || $check!==substr($checksum, 10)) return false;
         return true;
     }
@@ -116,6 +116,7 @@ class SecureStr{
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
+     * @deprecated
      */
     public static function strong_encrypt_AES128(string $value, string $strongKey, bool $raw=false, int $levels=0){
         return static::strong_encrypt_AESx(128, $value, $strongKey, $raw, $levels);
@@ -128,6 +129,7 @@ class SecureStr{
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
+     * @deprecated
      */
     public static function strong_decrypt_AES128(string $value, string $strongKey, bool $raw=false, int $levels=0){
         return static::strong_decrypt_AESx(128, $value, $strongKey, $raw, $levels);
@@ -146,6 +148,7 @@ class SecureStr{
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
+     * @deprecated
      */
     public static function strong_encrypt_AES192(string $value, string $strongKey, bool $raw=false, int $levels=0){
         return static::strong_encrypt_AESx(192, $value, $strongKey, $raw, $levels);
@@ -158,6 +161,7 @@ class SecureStr{
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
+     * @deprecated
      */
     public static function strong_decrypt_AES192(string $value, string $strongKey, bool $raw=false, int $levels=0){
         return static::strong_decrypt_AESx(192, $value, $strongKey, $raw, $levels);
@@ -176,6 +180,7 @@ class SecureStr{
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
+     * @deprecated
      */
     public static function strong_encrypt_AES256(string $value, string $strongKey, bool $raw=false, int $levels=0){
         return static::strong_encrypt_AESx(256, $value, $strongKey, $raw, $levels);
@@ -188,6 +193,7 @@ class SecureStr{
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
+     * @deprecated
      */
     public static function strong_decrypt_AES256(string $value, string $strongKey, bool $raw=false, int $levels=0){
         return static::strong_decrypt_AESx(256, $value, $strongKey, $raw, $levels);
@@ -210,6 +216,7 @@ class SecureStr{
      * @param bool $raw
      * @param int $levels Recomendado: 2 a 4 niveles. Autocompleta los niveles de encriptación
      * @return string|null
+     * @deprecated
      */
     private static function strong_encrypt_AESx(int $bits, string $value, string $strongKey, bool $raw, int $levels){
         $algo='AES-'.$bits.'-OFB';
@@ -244,6 +251,15 @@ class SecureStr{
         return $raw?$iv_init.$enc_bin:base64_encode($iv_init.$enc_bin);
     }
 
+    /**
+     * @param int $bits
+     * @param string $enc_value
+     * @param string $strongKey
+     * @param bool $raw
+     * @param int $levels
+     * @return false|string|null
+     * @deprecated
+     */
     private static function strong_decrypt_AESx(int $bits, string $enc_value, string $strongKey, bool $raw, int $levels){
         $algo='AES-'.$bits.'-OFB';
         $kSize=($bits/8);
@@ -291,72 +307,76 @@ class SecureStr{
      * @param string $value Valor a encriptar
      * @param string $key Llave inicial de encriptación. El proceso genera nuevos valores en cada iteración
      * @param bool $raw Default=FALSE. Devuelve un base64. Si es TRUE, devuelve el valor binario
-     * @param int $iterations Default=8. Números de iteraciones. Un número mayor aumentará el costo de la encriptación y será más seguro
-     * @param int $checksumLength Default=16. Longitud del checksum agregado para la comprobación de integridad
-     * @return string|null
+     * @param int $iterations [1-65536] Números de iteraciones. Ver {@see openssl_pbkdf2()}
+     * @param int $saltLength [8-32] Default=16 Longitud del salt agregado al resultado
+     * @return string
+     * @throws Exception
      */
-    public static function encrypt_AES256OFB(string $value, string $key, bool $raw=false, int $iterations=8, int $checksumLength=16){
-        $algo='AES-256-OFB';
+    public static function encrypt_derive256(string $value, string $key, bool $raw=false, int $iterations, int $saltLength=16){
         $digest_algo='sha256';
-        $iterations=min(max($iterations, 0), 65535)+1;
-        $checksumLength=min(max($checksumLength, 8), 32);
-        $iv=openssl_random_pseudo_bytes(16);
-        if(!$iv) return null;
-        $offset=3-((strlen($value)+$checksumLength+17)%3);
-        $value=openssl_random_pseudo_bytes($offset).$value;
-        $checksum=substr(hash_hmac($digest_algo, $value, $iv, true), 0, $checksumLength);
-        $derivedSalt=hash_hmac($digest_algo, $iv.$checksum.pack('N', $iterations), $key, true);
-        $derivedKey=hash_hmac($digest_algo, $key, $derivedSalt, true);
-        $secretIV=substr(hash_hmac($digest_algo, $derivedSalt, $derivedKey, true), 0, openssl_cipher_iv_length($algo));
-        unset($derivedSalt);
-        $bin=$value;
-        for($i=1; $i<=$iterations; ++$i){
-            $secret=hash_hmac($digest_algo, $derivedKey.pack('N', $i), $secretIV, true);
-            $bin=openssl_encrypt($bin, $algo, $secret, OPENSSL_RAW_DATA, $secretIV);
-            if($bin===false) return null;
-        }
-        $enc_bin=$iv.chr($checksumLength<<2|$offset).$checksum.$bin;
+        $keyLen=32;
+        $ivLen=16;
+        $saltLength=min(max($saltLength, 8), 32);
+        $iterations=min(max($iterations, 1), 65536);
+        $salt=openssl_random_pseudo_bytes($saltLength);
+        if(!$salt) throw new Exception('Random IV Fail');
+        $fill=3-((strlen($value)+$saltLength+19)%3);
+        $value=openssl_random_pseudo_bytes($fill).$value;
+        $checksum=substr(hash_hmac($digest_algo, $value, $salt, true), 0, 16);
+        $derivedKey=openssl_pbkdf2($key, hash_hmac($digest_algo, $salt.$checksum, $key, true), $keyLen+$ivLen, $iterations, $digest_algo);
+        if($derivedKey===false) throw new Exception('PBKDF2 Fail');
+        $enc_bin=openssl_encrypt($value, 'aes-256-ofb', substr($derivedKey, $ivLen), OPENSSL_RAW_DATA, substr($derivedKey, 0, $ivLen));
+        if($enc_bin===false) throw new Exception('Encrypt Fail');
+        $enc_bin=pack('n', $iterations-1).chr(($saltLength-1)<<3|$fill).$salt.$checksum.$enc_bin;
         return $raw?$enc_bin:base64_encode($enc_bin);
     }
 
     /**
-     * Desencripta el valor generado por {@see SecureStr::encrypt_AES256OFB()}
+     * Desencripta el valor generado por {@see SecureStr::encrypt_derive256()}
      * @param string $enc_value Valor encriptado
      * @param string $key Llave inicial de encriptación
      * @param bool $raw Default=FALSE. Recibe un base64. Si es TRUE, recibe el valor binario
-     * @param int $iterations Default=8. Números de iteraciones con el que se encriptó
-     * @param int|null $checksumLength Parámetro de salida, devuelve la longitud que se usó de checksum
-     * @return false|string|null
+     * @param int|null $iterations
+     * @param int|null $saltLength
+     * @return string|null
+     * @throws Exception
      */
-    public static function decrypt_AES256OFB(string $enc_value, string $key, bool $raw=false, int $iterations=8, ?int &$checksumLength=null){
-        $checksumLength=null;
-        $bin=$raw?$enc_value:base64_decode($enc_value);
-        $algo='AES-256-OFB';
-        $digest_algo='sha256';
-        $iterations=min(max($iterations, 0), 65535)+1;
-        $iv=substr($bin, 0, 16);
-        $bin=substr($bin, 16);
-        $checkLen=ord($bin);
-        $offset=$checkLen&3;
-        $checkLen=$checkLen>>2;
-        if($checkLen>32 || $checkLen<8) return null;
-        $checksum=substr($bin, 1, $checkLen);
-        $bin=substr($bin, 1+$checkLen);
-        $derivedSalt=hash_hmac($digest_algo, $iv.$checksum.pack('N', $iterations), $key, true);
-        $derivedKey=hash_hmac($digest_algo, $key, $derivedSalt, true);
-        $secretIV=substr(hash_hmac($digest_algo, $derivedSalt, $derivedKey, true), 0, openssl_cipher_iv_length($algo));
-        unset($derivedSalt);
-        for($i=$iterations; $i>0; --$i){
-            $secret=hash_hmac($digest_algo, $derivedKey.pack('N', $i), $secretIV, true);
-            $bin=openssl_decrypt($bin, $algo, $secret, OPENSSL_RAW_DATA, $secretIV);
-            if($bin===false) return null;
-        }
-        $checksumB=substr(hash_hmac($digest_algo, $bin, $iv, true), 0, $checkLen);
-        if($checksum!==$checksumB)
+    public static function decrypt_derive256(string $enc_value, string $key, bool $raw=false, ?int &$iterations=null, ?int &$saltLength=null){
+        if(!self::explain_derive256($enc_value, $raw, $iterations, $fill, $salt, $checksum, $bin))
             return null;
-        $value=substr($bin, $offset);
-        $checksumLength=$checkLen;
-        return $value;
+        $saltLength=strlen($salt);
+        $digest_algo='sha256';
+        $keyLen=32;
+        $ivLen=16;
+        $derivedKey=openssl_pbkdf2($key, hash_hmac($digest_algo, $salt.$checksum, $key, true), $keyLen+$ivLen, $iterations, $digest_algo);
+        if($derivedKey===false) throw new Exception('PBKDF2 Fail');
+        $dec_bin=openssl_decrypt($bin, 'aes-256-ofb', substr($derivedKey, $ivLen), OPENSSL_RAW_DATA, substr($derivedKey, 0, $ivLen));
+        if($dec_bin===false) throw new Exception('Decrypt Fail');
+        $checksumB=substr(hash_hmac($digest_algo, $dec_bin, $salt, true), 0, 16);
+        $dec_bin=substr($dec_bin, $fill);
+        if($dec_bin===false || $checksum!==$checksumB)
+            return null;
+        return $dec_bin;
+    }
+
+    public static function explain_derive256(string $val, bool $raw=false, ?int &$iterations=null, ?int &$fill=null, ?string &$salt=null, ?string &$checksum=null, ?string &$bin=null){
+        if(!$raw) $val=base64_decode($val);
+        if(strlen($val)%3)
+            return false;
+        $iterations=unpack('n', $val)[1]+1;
+        $ctrl=ord(substr($val, 2, 1));
+        $saltLen=($ctrl>>3)+1;
+        if($saltLen<8)
+            return false;
+        $fill=$ctrl&7;
+        if(1>$fill || $fill>3)
+            return false;
+        $salt=substr($val, 3, $saltLen);
+        $checksum=substr($val, $saltLen+3, 16);
+        $bin=substr($val, $saltLen+19);
+        if(strlen($bin)<$fill)
+            return false;
+        return true;
     }
 
 }
