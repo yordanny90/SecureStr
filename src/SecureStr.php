@@ -23,11 +23,30 @@ class SecureStr{
      * @return string
      */
     static function base64_fromUrl($base64_url){
-        $b64=str_replace(array('-','_'),array('+','/'),$base64_url);
-        if((strlen($b64)%4)>1){
-            $b64.=str_repeat('=', 4-(strlen($b64)%4));
+        $b64=str_replace(array('-','_',"\n","\r"),array('+','/','',''),$base64_url);
+        $pad=strlen($b64)%4;
+        if($pad>1){
+            $b64.=str_repeat('=', 4-$pad);
         }
         return $b64;
+    }
+
+    /**
+     * Codifica el string en un base64 seguro para URL
+     * @param $string
+     * @return string
+     */
+    static function base64_encodeurl($string){
+        return self::base64_toUrl(base64_encode($string));
+    }
+
+    /**
+     * Decodifica un base64 seguro para URL
+     * @param $base64
+     * @return false|string
+     */
+    static function base64_decodeurl($base64){
+        return base64_decode(self::base64_fromUrl($base64));
     }
 
     private static function makeCheckSum(string $data, string $privatekey, string $salt, int $iterations, int $length): ?string{
@@ -53,7 +72,7 @@ class SecureStr{
         $salt=pack('n', $iterations).openssl_random_pseudo_bytes(8);
         $check=self::makeCheckSum($data, $privatekey, $salt, $iterations, $length);
         if(!$check) return null;
-        return $raw?$salt.$check:self::base64_toUrl(base64_encode($salt.$check));
+        return $raw?$salt.$check:self::base64_encodeurl($salt.$check);
     }
 
     /**
@@ -64,7 +83,7 @@ class SecureStr{
      * @return bool
      */
     public static function checksum_verify(string $data, string $privatekey, string $checksum, bool $raw=false): bool{
-        if(!$raw) $checksum=base64_decode(self::base64_fromUrl($checksum));
+        if(!$raw) $checksum=self::base64_decodeurl($checksum);
         $length=strlen($checksum)-10;
         if($length<16 || $length>32) return false;
         $iterations=unpack('n', substr($checksum, 0, 2))[1]??0;
@@ -104,6 +123,21 @@ class SecureStr{
     }
 
     /**
+     * Mismo proceso que {@see SecureStr::encrypt_derive256()} pero el resultado es un base64 seguro para URL
+     *
+     * Este resultado también se desencripta por {@see SecureStr::decrypt_derive256()}
+     * @param string $value
+     * @param string $key
+     * @param int $iterations
+     * @param int $saltLength
+     * @return string
+     * @throws Exception
+     */
+    public static function encrypt_derive256url(string $value, string $key, int $iterations, int $saltLength=16){
+        return self::base64_encodeurl(self::encrypt_derive256($value, $key, true, $iterations, $saltLength));
+    }
+
+    /**
      * Encriptación con llave derivada
      * @param string $value Valor a encriptar
      * @param string $key Llave inicial de encriptación. El proceso genera nuevos valores en cada iteración
@@ -133,7 +167,7 @@ class SecureStr{
     }
 
     /**
-     * Desencripta el valor generado por {@see SecureStr::encrypt_derive256()}
+     * Desencripta el valor generado por {@see SecureStr::encrypt_derive256()} y {@see SecureStr::encrypt_derive256url()}
      * @param string $enc_value Valor encriptado
      * @param string $key Llave inicial de encriptación
      * @param bool $raw Default=FALSE. Recibe un base64. Si es TRUE, recibe el valor binario
@@ -161,7 +195,7 @@ class SecureStr{
     }
 
     public static function explain_derive256(string $val, bool $raw=false, ?int &$iterations=null, ?int &$fill=null, ?string &$salt=null, ?string &$checksum=null, ?string &$bin=null){
-        if(!$raw) $val=base64_decode($val);
+        if(!$raw) $val=self::base64_decodeurl($val);
         if(strlen($val)%3)
             return false;
         $iterations=unpack('n', $val)[1]+1;
