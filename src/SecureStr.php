@@ -60,13 +60,13 @@ class SecureStr{
      * @param string $data
      * @param string $privatekey
      * @param int $length Default: 26. Rango: 26-42. Longitud del checksum resultante en bytes
-     * @param int|null $iterations Default: 26. Rango: 255-65535. Iteraciones usadas en {@see openssl_pbkdf2()} Si es null, se asigna <code>rand(255, 2560)</code>
+     * @param int|null $iterations Default: null. Rango: 255-65535. Iteraciones usadas en {@see openssl_pbkdf2()} Si es null, se asigna <code>rand(255, 65535)</code>
      * @param bool $raw
      * @return string|null
      */
     public static function checksum_create(string $data, string $privatekey, int $length=26, ?int $iterations=null, bool $raw=false): ?string{
         $length=min(max($length-10, 16), 32);
-        if($iterations===null) $iterations=rand(255, 2560);
+        if($iterations===null) $iterations=rand(255, 65535);
         elseif($iterations>65535) $iterations=65535;
         elseif($iterations<255) $iterations=255;
         $salt=pack('n', $iterations).openssl_random_pseudo_bytes(8);
@@ -98,12 +98,13 @@ class SecureStr{
      * Genera un valor con checksum seguro (base64), utilizando una llave privada de codificación
      * @param string $value
      * @param string $privatekey Llave privada
-     * @param int $length Default: 26. Rango: 26-42. Longitud del checksum en bytes
+     * @param int $length Default: 26. Rango: 26-42. Longitud del checksum en bytes. Ver parametro en {@see SecureStr::checksum_create()}
+     * @param int|null $iterations Ver parametro en {@see SecureStr::checksum_create()}
      * @return string|null
      * @see SecureStr::decode()
      */
-    static function encode(string $value, string $privatekey, int $length=26): ?string{
-        $check=self::checksum_create($value, $privatekey, $length);
+    static function encode(string $value, string $privatekey, int $length=26, ?int $iterations=null): ?string{
+        $check=self::checksum_create($value, $privatekey, $length, $iterations);
         if(!is_string($check)) return null;
         $res=$check.'.'.$value;
         return $res;
