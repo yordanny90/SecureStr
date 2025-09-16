@@ -143,7 +143,7 @@ class SecureStr{
      * @param string $value Valor a encriptar
      * @param string $key Llave inicial de encriptación. El proceso genera nuevos valores en cada iteración
      * @param bool $raw Si es FALSE, Devuelve un base64. Si es TRUE, devuelve el valor binario
-     * @param int $iterations [1-65536] Números de iteraciones. Ver {@see openssl_pbkdf2()}
+     * @param int $iterations [1-16777216] Números de iteraciones. Ver {@see openssl_pbkdf2()}
      * @param int $saltLength [8-32] Default=16 Longitud del salt agregado al resultado
      * @return string
      * @throws Exception
@@ -153,17 +153,23 @@ class SecureStr{
         $keyLen=32;
         $ivLen=16;
         $saltLength=min(max($saltLength, 8), 32);
-        $iterations=min(max($iterations, 1), 65536);
+        $iterations=min(max($iterations, 1), 16777216);
+        if($iterations<=65280){
+            $itBin=pack('n', $iterations-1);
+        }
+        else{
+            $itBin="\xFF".substr(pack('N', $iterations-1), 1);
+        }
         $salt=openssl_random_pseudo_bytes($saltLength);
         if(!$salt) throw new Exception('Random IV Fail');
-        $fill=3-((strlen($value)+$saltLength+19)%3);
+        $fill=3-((strlen($value)+strlen($itBin)+$saltLength+17)%3);
         $value=openssl_random_pseudo_bytes($fill).$value;
         $checksum=substr(hash_hmac($digest_algo, $value, $salt, true), 0, 16);
         $derivedKey=openssl_pbkdf2($key, hash_hmac($digest_algo, $salt.$checksum, $key, true), $keyLen+$ivLen, $iterations, $digest_algo);
         if($derivedKey===false) throw new Exception('PBKDF2 Fail');
         $enc_bin=openssl_encrypt($value, 'aes-256-ofb', substr($derivedKey, $ivLen), OPENSSL_RAW_DATA, substr($derivedKey, 0, $ivLen));
         if($enc_bin===false) throw new Exception('Encrypt Fail');
-        $enc_bin=pack('n', $iterations-1).chr(($saltLength-1)<<3|$fill).$salt.$checksum.$enc_bin;
+        $enc_bin=$itBin.chr(($saltLength-1)<<3|$fill).$salt.$checksum.$enc_bin;
         return $raw?$enc_bin:base64_encode($enc_bin);
     }
 
@@ -199,17 +205,26 @@ class SecureStr{
         if(!$raw) $val=self::base64_decodeurl($val);
         if(strlen($val)%3)
             return false;
-        $iterations=unpack('n', $val)[1]+1;
-        $ctrl=ord(substr($val, 2, 1));
+        if(substr($val, 0, 1)!=="\xFF"){
+            $off=2;
+            $iterations=unpack('n', $val)[1];
+        }
+        else{
+            $off=4;
+            $iterations=unpack('N', "\x00".substr($val, 1, 3))[1];
+        }
+        ++$iterations;
+        $ctrl=ord(substr($val, $off, 1));
         $saltLen=($ctrl>>3)+1;
         if($saltLen<8)
             return false;
         $fill=$ctrl&7;
         if(1>$fill || $fill>3)
             return false;
-        $salt=substr($val, 3, $saltLen);
-        $checksum=substr($val, $saltLen+3, 16);
-        $bin=substr($val, $saltLen+19);
+        ++$off;
+        $salt=substr($val, $off, $saltLen);
+        $checksum=substr($val, $saltLen+$off, 16);
+        $bin=substr($val, $saltLen+$off+16);
         if(strlen($bin)<$fill)
             return false;
         return true;
